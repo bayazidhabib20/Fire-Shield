@@ -3,11 +3,13 @@ import requests
 import re
 import sys
 import os
+import time
 
 # ─── ANSI Color Codes ─────────────────────────────────────────────────────────
 RED    = '\033[91m'
 GREEN  = '\033[92m'
 YELLOW = '\033[93m'
+WHITE  = '\033[97m'
 CYAN   = '\033[96m'
 RESET  = '\033[0m'
 
@@ -44,7 +46,60 @@ def sanitize_url(url):
         return url
     return None
 
-# ─── ASCII Banner ─────────────────────────────────────────────────────────────
+# ─── ASCII Art Lines (raw, no color) ─────────────────────────────────────────
+ASCII_LINES = [
+    r"  ______ ___ ____  _____        ",
+    r" |  ___|_ _| __ \| ____|       ",
+    r" | |_   | ||   / |  _|         ",
+    r" |  _|  | || |\ \| |___        ",
+    r" |_|   |___|_| \_\_____|       ",
+    r"  ____  _   _ ___ ___ _    ____ ",
+    r" / ___|| | | |_ _| __| |  |  _ \ ",
+    r" \___ \| |_| || || _|| |__| | | |",
+    r"  ___) |  _  || || |___  _| |_| |",
+    r" |____/|_| |_|___|_____|_||____/ ",
+]
+
+WIDTH = 58  # target center width
+
+# ─── Animated Banner (runs once at startup) ───────────────────────────────────
+def banner():
+    credit  = "[-] Tool Created by Bayazid Habib [-]"
+    version = "Version : 0.1"
+
+    flame_frames = [YELLOW, RED, YELLOW, RED, YELLOW, RED]
+
+    for frame_idx, base_color in enumerate(flame_frames):
+        os.system('clear')
+        print()
+        for i, line in enumerate(ASCII_LINES):
+            # Alternate each line color opposite to base for shimmer depth
+            color = RED if (base_color == YELLOW and i % 2 == 0) else YELLOW
+            if base_color == RED and i % 2 == 0:
+                color = YELLOW
+            elif base_color == RED:
+                color = RED
+            else:
+                color = YELLOW if i % 2 == 0 else RED
+            print(color + line.center(WIDTH) + RESET)
+        print()
+        print(GREEN  + credit.center(WIDTH)  + RESET)
+        print(WHITE  + version.center(WIDTH) + RESET)
+        print()
+        time.sleep(0.2)
+
+    # Final settled frame — full YELLOW, no flicker
+    os.system('clear')
+    print()
+    for line in ASCII_LINES:
+        print(YELLOW + line.center(WIDTH) + RESET)
+    print()
+    print(GREEN + credit.center(WIDTH)  + RESET)
+    print(WHITE + version.center(WIDTH) + RESET)
+    print()
+    time.sleep(0.4)
+
+# ─── Static Banner (used by menu & modules) ───────────────────────────────────
 BANNER = f"""
 {YELLOW}  ______ ___ ____  _____        
  |  ___|_ _| __ \| ____|       
@@ -63,7 +118,7 @@ BANNER = f"""
 def show_menu():
     os.system('clear')
     print(BANNER)
-    print(f"{GREEN}[-] Tool Created by FIRE-SHIELD{RESET}\n")
+    print(f"{GREEN}[-] Tool Created by Bayazid Habib [-]{RESET}\n")
     print(f"{GREEN}[::] Select A Scan Module [::]  {RESET}\n")
     print(f"  {RED}[01]{RESET}  {GREEN}Scan URL{RESET}")
     print(f"  {RED}[02]{RESET}  {GREEN}Scan File{RESET}")
@@ -129,6 +184,8 @@ def coming_soon(module_name):
 
 # ─── Main Loop ────────────────────────────────────────────────────────────────
 def main():
+    banner()  # Animated shimmer runs once at launch
+
     while True:
         try:
             choice = show_menu()
