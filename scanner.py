@@ -222,13 +222,30 @@ def scan_file():
     os.system('clear')
     print(BANNER)
     print(f"{GREEN}[::] FILE SCAN MODULE [::]  {RESET}\n")
-    print(f"{CYAN}[*] File must be in your current directory.{RESET}\n")
+    print(f"{CYAN}[*] First, upload/move your file to this directory:{RESET}")
+    print(f"{WHITE}    {os.getcwd()}{RESET}\n")
+    print(f"{CYAN}[*] Usage : scan <filename>  (e.g. scan report.pdf){RESET}")
+    print(f"{CYAN}[*] Type  : back            (to return to menu){RESET}\n")
 
-    filename = input(f"{GREEN}[?] Enter filename (e.g. report.pdf): {RESET}").strip()
-    if not filename:
-        print(f"\n{RED}[!] No filename entered.{RESET}")
-        input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
-        return
+    filename = None
+    while True:
+        cmd = input(f"{GREEN}fire-shield> {RESET}").strip()
+
+        if not cmd:
+            continue
+
+        if cmd.lower() == 'back':
+            return
+
+        parts = cmd.split(None, 1)
+
+        if parts[0].lower() == 'scan' and len(parts) == 2:
+            filename = parts[1].strip()
+            break
+        elif parts[0].lower() == 'scan' and len(parts) == 1:
+            print(f"{YELLOW}[!] Use 'scan filename' to start. (e.g. scan report.pdf){RESET}")
+        else:
+            print(f"{YELLOW}[!] Use 'scan filename' to start. (e.g. scan report.pdf){RESET}")
 
     filepath = os.path.join(os.getcwd(), filename)
     if not os.path.isfile(filepath):
