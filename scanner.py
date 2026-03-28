@@ -223,75 +223,63 @@ def scan_file():
     print(BANNER)
     print(f"{GREEN}[::] FILE SCAN MODULE [::]  {RESET}\n")
     print(f"{CYAN}[*] Working directory : {WHITE}{os.getcwd()}{RESET}\n")
-    print(f"{GREEN}  upload <filename>{RESET}  {WHITE}→ Pick file from Android storage{RESET}")
-    print(f"{GREEN}  scan   <filename>{RESET}  {WHITE}→ Submit file to VirusTotal{RESET}")
-    print(f"{GREEN}  back             {RESET}  {WHITE}→ Return to main menu{RESET}\n")
+    print(f"{GREEN}  upload{RESET}  {WHITE}→ Open file picker (saves as temp_file){RESET}")
+    print(f"{GREEN}  scan  {RESET}  {WHITE}→ Submit temp_file to VirusTotal{RESET}")
+    print(f"{GREEN}  back  {RESET}  {WHITE}→ Return to main menu{RESET}\n")
 
-    filename = None
+    TEMP_FILE = 'temp_file'
+
     while True:
-        cmd = input(f"{GREEN}fire-shield> {RESET}").strip()
+        cmd = input(f"{GREEN}fire-shield> {RESET}").strip().lower()
 
         if not cmd:
             continue
 
-        parts = cmd.split(None, 1)
-        keyword = parts[0].lower()
-
         # ── back ───────────────────────────────────────────────────────────────
-        if keyword == 'back':
+        if cmd == 'back':
             return
 
-        # ── upload <filename> ──────────────────────────────────────────────────
-        elif keyword == 'upload':
-            if len(parts) < 2:
-                print(f"{YELLOW}[!] Usage: upload <filename>  (e.g. upload malware.exe){RESET}")
-                continue
-            target_name = parts[1].strip()
+        # ── upload ─────────────────────────────────────────────────────────────
+        elif cmd == 'upload':
             print(f"{YELLOW}[*] Opening file picker... Select your file.{RESET}")
-            ret = os.system(f"termux-storage-get {target_name}")
+            ret = os.system('termux-storage-get temp_file')
             if ret != 0:
-                print(f"{RED}[!] File picker closed or termux-storage-get failed.{RESET}")
-                print(f"{CYAN}[*] Make sure termux-api is installed: pkg install termux-api{RESET}")
+                print(f"{RED}[!] File picker failed or was cancelled.{RESET}")
+                print(f"{CYAN}[*] Ensure termux-api is installed: pkg install termux-api{RESET}")
             else:
-                # Verify file actually landed in cwd
-                if os.path.isfile(os.path.join(os.getcwd(), target_name)):
-                    print(f"{GREEN}[+] File '{target_name}' is ready in working directory.{RESET}")
-                    print(f"{CYAN}[*] Now type: scan {target_name}{RESET}")
+                if os.path.isfile(os.path.join(os.getcwd(), TEMP_FILE)):
+                    print(f"{GREEN}[+] File received and saved as 'temp_file'.{RESET}")
+                    print(f"{CYAN}[*] Type 'scan' to submit it to VirusTotal.{RESET}")
                 else:
-                    print(f"{YELLOW}[~] Picker closed. File not found in directory yet.{RESET}")
-                    print(f"{CYAN}[*] If you cancelled, try upload again.{RESET}")
+                    print(f"{YELLOW}[~] Picker closed but temp_file not found. Did you select a file?{RESET}")
 
-        # ── scan <filename> ────────────────────────────────────────────────────
-        elif keyword == 'scan':
-            if len(parts) < 2:
-                print(f"{YELLOW}[!] Usage: scan <filename>  (e.g. scan malware.exe){RESET}")
-                continue
-            filename = parts[1].strip()
-            filepath = os.path.join(os.getcwd(), filename)
+        # ── scan ───────────────────────────────────────────────────────────────
+        elif cmd == 'scan':
+            filepath = os.path.join(os.getcwd(), TEMP_FILE)
             if not os.path.isfile(filepath):
                 print(f"{RED}[!] Error: File not found in current directory.{RESET}")
-                print(f"{CYAN}[*] Use 'upload {filename}' to bring it in first.{RESET}")
+                print(f"{CYAN}[*] Use 'upload' to pick a file first.{RESET}")
                 continue
             break  # File exists — proceed to VT upload below
 
         # ── unknown command ────────────────────────────────────────────────────
         else:
-            print(f"{YELLOW}[!] Unknown command. Use: upload <filename> | scan <filename> | back{RESET}")
+            print(f"{YELLOW}[!] Unknown command. Valid commands: upload | scan | back{RESET}")
 
-    filepath = os.path.join(os.getcwd(), filename)
+    filepath = os.path.join(os.getcwd(), TEMP_FILE)
     if not os.path.isfile(filepath):
         print(f"\n{RED}[!] Error: File not found in current directory.{RESET}")
         input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
         return
 
-    print(f"\n{YELLOW}[*] Uploading '{filename}' to VirusTotal...{RESET}")
+    print(f"\n{YELLOW}[*] Uploading 'temp_file' to VirusTotal...{RESET}")
     try:
         vt_headers = {'x-apikey': get_vt_key()}
         with open(filepath, 'rb') as f:
             upload_resp = requests.post(
                 'https://www.virustotal.com/api/v3/files',
                 headers=vt_headers,
-                files={'file': (filename, f)},
+                files={'file': (TEMP_FILE, f)},
                 timeout=60
             )
         if upload_resp.status_code == 200:
