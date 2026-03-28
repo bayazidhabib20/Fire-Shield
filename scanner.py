@@ -222,10 +222,10 @@ def scan_file():
     os.system('clear')
     print(BANNER)
     print(f"{GREEN}[::] FILE SCAN MODULE [::]  {RESET}\n")
-    print(f"{CYAN}[*] First, upload/move your file to this directory:{RESET}")
-    print(f"{WHITE}    {os.getcwd()}{RESET}\n")
-    print(f"{CYAN}[*] Usage : scan <filename>  (e.g. scan report.pdf){RESET}")
-    print(f"{CYAN}[*] Type  : back            (to return to menu){RESET}\n")
+    print(f"{CYAN}[*] Working directory : {WHITE}{os.getcwd()}{RESET}\n")
+    print(f"{GREEN}  upload <filename>{RESET}  {WHITE}→ Pick file from Android storage{RESET}")
+    print(f"{GREEN}  scan   <filename>{RESET}  {WHITE}→ Submit file to VirusTotal{RESET}")
+    print(f"{GREEN}  back             {RESET}  {WHITE}→ Return to main menu{RESET}\n")
 
     filename = None
     while True:
@@ -234,22 +234,53 @@ def scan_file():
         if not cmd:
             continue
 
-        if cmd.lower() == 'back':
+        parts = cmd.split(None, 1)
+        keyword = parts[0].lower()
+
+        # ── back ───────────────────────────────────────────────────────────────
+        if keyword == 'back':
             return
 
-        parts = cmd.split(None, 1)
+        # ── upload <filename> ──────────────────────────────────────────────────
+        elif keyword == 'upload':
+            if len(parts) < 2:
+                print(f"{YELLOW}[!] Usage: upload <filename>  (e.g. upload malware.exe){RESET}")
+                continue
+            target_name = parts[1].strip()
+            print(f"{YELLOW}[*] Opening file picker... Select your file.{RESET}")
+            ret = os.system(f"termux-storage-get {target_name}")
+            if ret != 0:
+                print(f"{RED}[!] File picker closed or termux-storage-get failed.{RESET}")
+                print(f"{CYAN}[*] Make sure termux-api is installed: pkg install termux-api{RESET}")
+            else:
+                # Verify file actually landed in cwd
+                if os.path.isfile(os.path.join(os.getcwd(), target_name)):
+                    print(f"{GREEN}[+] File '{target_name}' is ready in working directory.{RESET}")
+                    print(f"{CYAN}[*] Now type: scan {target_name}{RESET}")
+                else:
+                    print(f"{YELLOW}[~] Picker closed. File not found in directory yet.{RESET}")
+                    print(f"{CYAN}[*] If you cancelled, try upload again.{RESET}")
 
-        if parts[0].lower() == 'scan' and len(parts) == 2:
+        # ── scan <filename> ────────────────────────────────────────────────────
+        elif keyword == 'scan':
+            if len(parts) < 2:
+                print(f"{YELLOW}[!] Usage: scan <filename>  (e.g. scan malware.exe){RESET}")
+                continue
             filename = parts[1].strip()
-            break
-        elif parts[0].lower() == 'scan' and len(parts) == 1:
-            print(f"{YELLOW}[!] Use 'scan filename' to start. (e.g. scan report.pdf){RESET}")
+            filepath = os.path.join(os.getcwd(), filename)
+            if not os.path.isfile(filepath):
+                print(f"{RED}[!] Error: File not found in current directory.{RESET}")
+                print(f"{CYAN}[*] Use 'upload {filename}' to bring it in first.{RESET}")
+                continue
+            break  # File exists — proceed to VT upload below
+
+        # ── unknown command ────────────────────────────────────────────────────
         else:
-            print(f"{YELLOW}[!] Use 'scan filename' to start. (e.g. scan report.pdf){RESET}")
+            print(f"{YELLOW}[!] Unknown command. Use: upload <filename> | scan <filename> | back{RESET}")
 
     filepath = os.path.join(os.getcwd(), filename)
     if not os.path.isfile(filepath):
-        print(f"\n{RED}[!] File not found: {filepath}{RESET}")
+        print(f"\n{RED}[!] Error: File not found in current directory.{RESET}")
         input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
         return
 
