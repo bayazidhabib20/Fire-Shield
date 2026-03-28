@@ -13,27 +13,30 @@ WHITE  = '\033[97m'
 CYAN   = '\033[96m'
 RESET  = '\033[0m'
 
-# ─── Reverse-Base64 Masked API Key (DO NOT MODIFY) ────────────────────────────
-ENCODED_REVERSED_KEY = "PT1pYlhOMGFXNW5hVzVwY21WemRHOXBaR2x1WVhSbFpXUmxaRzkw"
+# ─── Reverse-Base64 Masked API Keys (DO NOT MODIFY) ───────────────────────────
+_VT_MASKED  = "YzU5MGE0NjY1ODRkMTNlNmZiZjllOGIxNzdiMzlhYzlmNTg3ZmE0Yzk1Y2Q3MThjZjYwZjRlMjdlM2ZkN2Q1Nw=="
+_URL_MASKED = "NmQ1NTMyZjIwZDIyLTZhZmItOTY0Ny0xM2NlLWMzNWZjOTEw"
 
-def get_actual_key():
-    """Decode and reverse back the key at runtime"""
+def _decode_key(masked):
     try:
-        decoded_bytes = base64.b64decode(ENCODED_REVERSED_KEY)
-        decoded_str = decoded_bytes.decode('utf-8')
-        return decoded_str[::-1]
+        decoded = base64.b64decode(masked).decode('utf-8')
+        return decoded[::-1]
     except Exception:
         return None
 
+def get_vt_key():
+    return _decode_key(_VT_MASKED)
+
+def get_url_key():
+    return _decode_key(_URL_MASKED)
+
+# ─── URL Sanitizer ────────────────────────────────────────────────────────────
 def sanitize_url(url):
-    """Auto-handle invalid or incomplete URLs"""
     url = url.strip()
     if not url:
         return None
-
     if not re.match(r'^https?://', url):
         url = 'https://' + url
-
     regex = re.compile(
         r'^(?:http|ftp)s?://'
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'
@@ -41,7 +44,6 @@ def sanitize_url(url):
         r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
         r'(?::\d+)?'
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
-
     if re.match(regex, url):
         return url
     return None
@@ -60,35 +62,29 @@ ASCII_LINES = [
     r" |____/|_| |_|___|_____|_||____/ ",
 ]
 
-WIDTH = 58  # target center width
+WIDTH = 58
 
 # ─── Animated Banner (runs once at startup) ───────────────────────────────────
 def banner():
     credit  = "[-] Tool Created by Bayazid Habib [-]"
     version = "Version : 0.1"
-
     flame_frames = [YELLOW, RED, YELLOW, RED, YELLOW, RED]
 
-    for frame_idx, base_color in enumerate(flame_frames):
+    for base_color in flame_frames:
         os.system('clear')
         print()
         for i, line in enumerate(ASCII_LINES):
-            # Alternate each line color opposite to base for shimmer depth
-            color = RED if (base_color == YELLOW and i % 2 == 0) else YELLOW
-            if base_color == RED and i % 2 == 0:
-                color = YELLOW
-            elif base_color == RED:
-                color = RED
-            else:
-                color = YELLOW if i % 2 == 0 else RED
+            color = YELLOW if i % 2 == 0 else RED
+            if base_color == RED:
+                color = RED if i % 2 == 0 else YELLOW
             print(color + line.center(WIDTH) + RESET)
         print()
-        print(GREEN  + credit.center(WIDTH)  + RESET)
-        print(WHITE  + version.center(WIDTH) + RESET)
+        print(GREEN + credit.center(WIDTH)  + RESET)
+        print(WHITE + version.center(WIDTH) + RESET)
         print()
         time.sleep(0.2)
 
-    # Final settled frame — full YELLOW, no flicker
+    # Final settled frame
     os.system('clear')
     print()
     for line in ASCII_LINES:
@@ -123,14 +119,34 @@ def show_menu():
     print(f"  {RED}[01]{RESET}  {GREEN}Scan URL{RESET}")
     print(f"  {RED}[02]{RESET}  {GREEN}Scan File{RESET}")
     print(f"  {RED}[03]{RESET}  {GREEN}Scan IP Address{RESET}")
-    print(f"  {RED}[04]{RESET}  {GREEN}Scan Port{RESET}")
     print()
     print(f"  {RED}[99]{RESET}  {GREEN}Exit{RESET}")
     print()
     choice = input(f"{GREEN}[-] Select an option : {RESET}")
     return choice.strip()
 
-# ─── Module 01 : URL Scanner ──────────────────────────────────────────────────
+# ─── Helper: VirusTotal verdict display ───────────────────────────────────────
+def _display_vt_stats(stats, label="Analysis"):
+    malicious   = stats.get('malicious', 0)
+    suspicious  = stats.get('suspicious', 0)
+    harmless    = stats.get('harmless', 0)
+    undetected  = stats.get('undetected', 0)
+    total       = malicious + suspicious + harmless + undetected
+
+    print(f"\n{CYAN}  ── VirusTotal {label} ──{RESET}")
+    print(f"  {GREEN}[+] Harmless   : {harmless}{RESET}")
+    print(f"  {YELLOW}[~] Suspicious : {suspicious}{RESET}")
+    print(f"  {WHITE}[-] Undetected : {undetected}{RESET}")
+    print(f"  {RED}[x] Malicious  : {malicious}{RESET}")
+
+    if malicious == 0 and suspicious == 0:
+        print(f"\n{GREEN}[v] Verdict: No significant threats detected ({total} engines checked).{RESET}")
+    elif malicious <= 3:
+        print(f"\n{YELLOW}[~] Verdict: Low-level flags found. Proceed with caution.{RESET}")
+    else:
+        print(f"\n{RED}[!] Verdict: Threat detected by {malicious} engine(s). Avoid this target.{RESET}")
+
+# ─── Module 01 : URL Scanner (URLscan.io + VirusTotal) ────────────────────────
 def scan_url():
     os.system('clear')
     print(BANNER)
@@ -144,47 +160,176 @@ def scan_url():
         input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
         return
 
-    api_key = get_actual_key()
-    headers = {'API-Key': api_key, 'Content-Type': 'application/json'}
-    data = {"url": target_url, "visibility": "unlisted"}
-
+    # ── URLscan.io ─────────────────────────────────────────────────────────────
+    print(f"\n{YELLOW}[*] Submitting to URLscan.io...{RESET}")
     try:
-        print(f"\n{YELLOW}[*] Scanning Target: {target_url}{RESET}")
-        print(f"{YELLOW}[*] Requesting analysis from URLscan.io...{RESET}")
-
-        response = requests.post(
+        url_headers = {'API-Key': get_url_key(), 'Content-Type': 'application/json'}
+        url_resp    = requests.post(
             'https://urlscan.io/api/v1/scan/',
-            headers=headers,
-            json=data
+            headers=url_headers,
+            json={"url": target_url, "visibility": "unlisted"},
+            timeout=15
         )
-
-        if response.status_code == 200:
-            result_link = response.json().get('result')
-            print(f"\n{GREEN}[+] SCAN SUCCESSFUL!{RESET}")
-            print(f"{GREEN}[+] Report URL: {result_link}{RESET}")
-        elif response.status_code == 401:
-            print(f"\n{RED}[!] Error: Unauthorized. Please check API Key configuration.{RESET}")
+        if url_resp.status_code == 200:
+            result_link = url_resp.json().get('result', 'N/A')
+            print(f"{GREEN}[+] URLscan Report : {result_link}{RESET}")
+        elif url_resp.status_code == 401:
+            print(f"{RED}[!] URLscan: Unauthorized.{RESET}")
         else:
-            print(f"\n{RED}[!] Server Error: HTTP {response.status_code}{RESET}")
-
+            print(f"{RED}[!] URLscan: HTTP {url_resp.status_code}{RESET}")
     except requests.exceptions.ConnectionError:
-        print(f"\n{RED}[!] Network Error: Please check your internet connection.{RESET}")
+        print(f"{RED}[!] URLscan: Network error.{RESET}")
     except Exception as e:
-        print(f"\n{RED}[!] Unexpected Error: {e}{RESET}")
+        print(f"{RED}[!] URLscan Error: {e}{RESET}")
+
+    # ── VirusTotal ─────────────────────────────────────────────────────────────
+    print(f"\n{YELLOW}[*] Submitting to VirusTotal...{RESET}")
+    try:
+        vt_headers = {'x-apikey': get_vt_key()}
+        vt_resp    = requests.post(
+            'https://www.virustotal.com/api/v3/urls',
+            headers=vt_headers,
+            data={'url': target_url},
+            timeout=15
+        )
+        if vt_resp.status_code == 200:
+            analysis_id = vt_resp.json().get('data', {}).get('id', '')
+            print(f"{YELLOW}[*] Analysis queued. Fetching results...{RESET}")
+            time.sleep(3)
+            result_resp = requests.get(
+                f'https://www.virustotal.com/api/v3/analyses/{analysis_id}',
+                headers=vt_headers,
+                timeout=15
+            )
+            if result_resp.status_code == 200:
+                stats = result_resp.json().get('data', {}).get('attributes', {}).get('stats', {})
+                _display_vt_stats(stats, label="URL Report")
+            else:
+                print(f"{RED}[!] VirusTotal: Could not retrieve analysis.{RESET}")
+        elif vt_resp.status_code == 401:
+            print(f"{RED}[!] VirusTotal: Unauthorized.{RESET}")
+        else:
+            print(f"{RED}[!] VirusTotal: HTTP {vt_resp.status_code}{RESET}")
+    except requests.exceptions.ConnectionError:
+        print(f"{RED}[!] VirusTotal: Network error.{RESET}")
+    except Exception as e:
+        print(f"{RED}[!] VirusTotal Error: {e}{RESET}")
 
     input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
 
-# ─── Modules 02-04 : Placeholders ─────────────────────────────────────────────
-def coming_soon(module_name):
+# ─── Module 02 : File Scanner (VirusTotal) ────────────────────────────────────
+def scan_file():
     os.system('clear')
     print(BANNER)
-    print(f"{YELLOW}[*] {module_name} module is under construction.{RESET}\n")
-    print(f"{RED}[!] This feature will be available in a future update.{RESET}")
+    print(f"{GREEN}[::] FILE SCAN MODULE [::]  {RESET}\n")
+    print(f"{CYAN}[*] File must be in your current directory.{RESET}\n")
+
+    filename = input(f"{GREEN}[?] Enter filename (e.g. report.pdf): {RESET}").strip()
+    if not filename:
+        print(f"\n{RED}[!] No filename entered.{RESET}")
+        input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
+        return
+
+    filepath = os.path.join(os.getcwd(), filename)
+    if not os.path.isfile(filepath):
+        print(f"\n{RED}[!] File not found: {filepath}{RESET}")
+        input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
+        return
+
+    print(f"\n{YELLOW}[*] Uploading '{filename}' to VirusTotal...{RESET}")
+    try:
+        vt_headers = {'x-apikey': get_vt_key()}
+        with open(filepath, 'rb') as f:
+            upload_resp = requests.post(
+                'https://www.virustotal.com/api/v3/files',
+                headers=vt_headers,
+                files={'file': (filename, f)},
+                timeout=60
+            )
+        if upload_resp.status_code == 200:
+            analysis_id = upload_resp.json().get('data', {}).get('id', '')
+            print(f"{YELLOW}[*] Uploaded. Waiting for analysis...{RESET}")
+            time.sleep(5)
+            result_resp = requests.get(
+                f'https://www.virustotal.com/api/v3/analyses/{analysis_id}',
+                headers=vt_headers,
+                timeout=15
+            )
+            if result_resp.status_code == 200:
+                attrs  = result_resp.json().get('data', {}).get('attributes', {})
+                stats  = attrs.get('stats', {})
+                status = attrs.get('status', '')
+                if status == 'completed':
+                    _display_vt_stats(stats, label="File Report")
+                else:
+                    print(f"{YELLOW}[~] Analysis still processing.{RESET}")
+                    print(f"{CYAN}    Analysis ID : {analysis_id}{RESET}")
+            else:
+                print(f"{RED}[!] Could not retrieve analysis results.{RESET}")
+        elif upload_resp.status_code == 401:
+            print(f"{RED}[!] Unauthorized.{RESET}")
+        else:
+            print(f"{RED}[!] Upload failed: HTTP {upload_resp.status_code}{RESET}")
+    except requests.exceptions.ConnectionError:
+        print(f"{RED}[!] Network error during upload.{RESET}")
+    except Exception as e:
+        print(f"{RED}[!] Error: {e}{RESET}")
+
+    input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
+
+# ─── Module 03 : IP Scanner (VirusTotal) ──────────────────────────────────────
+def scan_ip():
+    os.system('clear')
+    print(BANNER)
+    print(f"{GREEN}[::] IP SCAN MODULE [::]  {RESET}\n")
+
+    ip = input(f"{GREEN}[?] Enter Target IP Address: {RESET}").strip()
+    if not ip:
+        print(f"\n{RED}[!] No IP entered.{RESET}")
+        input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
+        return
+
+    if not re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
+        print(f"\n{RED}[!] Invalid IP format. Use IPv4 (e.g. 8.8.8.8){RESET}")
+        input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
+        return
+
+    print(f"\n{YELLOW}[*] Querying VirusTotal for IP: {ip}{RESET}")
+    try:
+        vt_headers = {'x-apikey': get_vt_key()}
+        resp = requests.get(
+            f'https://www.virustotal.com/api/v3/ip_addresses/{ip}',
+            headers=vt_headers,
+            timeout=15
+        )
+        if resp.status_code == 200:
+            attrs      = resp.json().get('data', {}).get('attributes', {})
+            stats      = attrs.get('last_analysis_stats', {})
+            country    = attrs.get('country', 'Unknown')
+            owner      = attrs.get('as_owner', 'Unknown')
+            reputation = attrs.get('reputation', 0)
+
+            print(f"\n{CYAN}  ── IP Intelligence ──{RESET}")
+            print(f"  {WHITE}[i] Country    : {country}{RESET}")
+            print(f"  {WHITE}[i] Owner/ASN  : {owner}{RESET}")
+            print(f"  {WHITE}[i] Reputation : {reputation}{RESET}")
+            _display_vt_stats(stats, label="IP Report")
+        elif resp.status_code == 404:
+            print(f"{YELLOW}[~] IP not found in VirusTotal database.{RESET}")
+        elif resp.status_code == 401:
+            print(f"{RED}[!] Unauthorized.{RESET}")
+        else:
+            print(f"{RED}[!] HTTP {resp.status_code}{RESET}")
+    except requests.exceptions.ConnectionError:
+        print(f"{RED}[!] Network error.{RESET}")
+    except Exception as e:
+        print(f"{RED}[!] Error: {e}{RESET}")
+
     input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
 
 # ─── Main Loop ────────────────────────────────────────────────────────────────
 def main():
-    banner()  # Animated shimmer runs once at launch
+    banner()
 
     while True:
         try:
@@ -193,11 +338,9 @@ def main():
             if choice == '01':
                 scan_url()
             elif choice == '02':
-                coming_soon("File Scan")
+                scan_file()
             elif choice == '03':
-                coming_soon("IP Address Scan")
-            elif choice == '04':
-                coming_soon("Port Scan")
+                scan_ip()
             elif choice == '99':
                 os.system('clear')
                 print(f"\n{RED}[!] Exiting FIRE-SHIELD. Stay Safe.{RESET}\n")
