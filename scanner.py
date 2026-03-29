@@ -146,6 +146,51 @@ def _display_vt_stats(stats, label="Analysis"):
     else:
         print(f"\n{RED}[!] Verdict: Threat detected by {malicious} engine(s). Avoid this target.{RESET}")
 
+# ─── Helper: Detailed per-engine file report (File Scan only) ────────────────
+def _display_vt_file_report(attrs, analysis_id):
+    stats     = attrs.get('stats', {})
+    results   = attrs.get('results', {})
+    malicious  = stats.get('malicious', 0)
+    suspicious = stats.get('suspicious', 0)
+    harmless   = stats.get('harmless', 0)
+    undetected = stats.get('undetected', 0)
+    total      = malicious + suspicious + harmless + undetected
+
+    scan_link = f"https://www.virustotal.com/gui/file-analysis/{analysis_id}"
+
+    # ── Summary header ─────────────────────────────────────────────────────────
+    print(f"\n{CYAN}  ══════════════════════════════════════{RESET}")
+    if malicious == 0 and suspicious == 0:
+        print(f"  {GREEN}[v] Total Detections : 0 / {total}{RESET}")
+    else:
+        print(f"  {RED}[!] Total Detections : {malicious + suspicious} / {total}{RESET}")
+    print(f"  {GREEN}[+] Scan Link        : {scan_link}{RESET}")
+    print(f"{CYAN}  ══════════════════════════════════════{RESET}")
+
+    # ── Flagged engines first ──────────────────────────────────────────────────
+    flagged = {
+        eng: data for eng, data in results.items()
+        if data.get('category') in ('malicious', 'suspicious')
+    }
+    if flagged:
+        print(f"\n{RED}  ── Flagged Engines ──{RESET}")
+        for engine, data in sorted(flagged.items()):
+            category = data.get('category', '').capitalize()
+            result   = data.get('result') or category
+            color    = RED if data.get('category') == 'malicious' else YELLOW
+            print(f"  {color}[x] {engine:<25} : {result}{RESET}")
+    else:
+        print(f"\n{GREEN}  [v] No engines flagged this file.{RESET}")
+
+    # ── Overall verdict ────────────────────────────────────────────────────────
+    print()
+    if malicious == 0 and suspicious == 0:
+        print(f"{GREEN}[v] Verdict: Clean. No threats detected ({total} engines).{RESET}")
+    elif malicious <= 3:
+        print(f"{YELLOW}[~] Verdict: Low-level flags. Proceed with caution.{RESET}")
+    else:
+        print(f"{RED}[!] Verdict: Threat detected by {malicious} engine(s). Avoid this file.{RESET}")
+
 # ─── Module 01 : URL Scanner (URLscan.io + VirusTotal) ────────────────────────
 def scan_url():
     os.system('clear')
@@ -284,24 +329,43 @@ def scan_file():
             )
         if upload_resp.status_code == 200:
             analysis_id = upload_resp.json().get('data', {}).get('id', '')
-            print(f"{YELLOW}[*] Uploaded. Waiting for analysis...{RESET}")
-            time.sleep(5)
-            result_resp = requests.get(
-                f'https://www.virustotal.com/api/v3/analyses/{analysis_id}',
-                headers=vt_headers,
-                timeout=15
-            )
-            if result_resp.status_code == 200:
-                attrs  = result_resp.json().get('data', {}).get('attributes', {})
-                stats  = attrs.get('stats', {})
-                status = attrs.get('status', '')
-                if status == 'completed':
-                    _display_vt_stats(stats, label="File Report")
-                else:
-                    print(f"{YELLOW}[~] Analysis still processing.{RESET}")
-                    print(f"{CYAN}    Analysis ID : {analysis_id}{RESET}")
+            print(f"{YELLOW}[*] File uploaded. Waiting for VirusTotal engines...{RESET}")
+
+            # ── Polling loop: check every 15s until completed ──────────────────
+            MAX_ATTEMPTS = 10
+            attempt      = 0
+            final_attrs  = None
+
+            while attempt < MAX_ATTEMPTS:
+                time.sleep(15)
+                attempt += 1
+                try:
+                    poll_resp = requests.get(
+                        f'https://www.virustotal.com/api/v3/analyses/{analysis_id}',
+                        headers=vt_headers,
+                        timeout=15
+                    )
+                    if poll_resp.status_code == 200:
+                        poll_attrs = poll_resp.json().get('data', {}).get('attributes', {})
+                        status     = poll_attrs.get('status', '')
+                        if status == 'completed':
+                            final_attrs = poll_attrs
+                            break
+                        else:
+                            print(f"{YELLOW}[*] VirusTotal is still scanning... "
+                                  f"(Attempt {attempt}/{MAX_ATTEMPTS}, retrying in 15s){RESET}")
+                    else:
+                        print(f"{RED}[!] Poll error: HTTP {poll_resp.status_code}{RESET}")
+                        break
+                except requests.exceptions.ConnectionError:
+                    print(f"{RED}[!] Network error during polling.{RESET}")
+                    break
+
+            if final_attrs:
+                _display_vt_file_report(final_attrs, analysis_id)
             else:
-                print(f"{RED}[!] Could not retrieve analysis results.{RESET}")
+                print(f"{YELLOW}[~] Analysis timed out or incomplete.{RESET}")
+                print(f"{CYAN}    Check manually: https://www.virustotal.com/gui/file-analysis/{analysis_id}{RESET}")
         elif upload_resp.status_code == 401:
             print(f"{RED}[!] Unauthorized.{RESET}")
         else:
@@ -310,10 +374,16 @@ def scan_file():
         print(f"{RED}[!] Network error during upload.{RESET}")
     except Exception as e:
         print(f"{RED}[!] Error: {e}{RESET}")
+    finally:
+        # ── Cleanup: delete temp_file regardless of outcome ────────────────────
+        if os.path.isfile(filepath):
+            try:
+                os.remove(filepath)
+                print(f"\n{CYAN}[*] temp_file deleted from local storage.{RESET}")
+            except Exception:
+                print(f"\n{YELLOW}[~] Could not delete temp_file. Remove it manually.{RESET}")
 
     input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
-
-# ─── Module 03 : IP Scanner (VirusTotal) ──────────────────────────────────────
 def scan_ip():
     os.system('clear')
     print(BANNER)
