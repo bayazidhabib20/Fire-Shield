@@ -260,19 +260,46 @@ def scan_url():
             timeout=15
         )
         if vt_resp.status_code == 200:
-            analysis_id = vt_resp.json().get('data', {}).get('id', '')
-            print(f"{YELLOW}[*] Analysis queued. Fetching results...{RESET}")
-            time.sleep(3)
-            result_resp = requests.get(
-                f'https://www.virustotal.com/api/v3/analyses/{analysis_id}',
-                headers=vt_headers,
-                timeout=15
-            )
-            if result_resp.status_code == 200:
-                stats = result_resp.json().get('data', {}).get('attributes', {}).get('stats', {})
-                _display_vt_stats(stats, label="URL Report")
+            analysis_id  = vt_resp.json().get('data', {}).get('id', '')
+            print(f"{YELLOW}[*] Analysis queued. Polling for results...{RESET}")
+
+            # ── Smart polling: 5s interval, stops when completed AND non-zero ──
+            MAX_ATTEMPTS = 10
+            attempt      = 0
+            final_stats  = None
+
+            while attempt < MAX_ATTEMPTS:
+                time.sleep(5)
+                attempt += 1
+                try:
+                    poll_resp = requests.get(
+                        f'https://www.virustotal.com/api/v3/analyses/{analysis_id}',
+                        headers=vt_headers,
+                        timeout=15
+                    )
+                    if poll_resp.status_code == 200:
+                        poll_attrs = poll_resp.json().get('data', {}).get('attributes', {})
+                        status     = poll_attrs.get('status', '')
+                        stats      = poll_attrs.get('stats', {})
+                        total_seen = sum(stats.values())
+
+                        if status == 'completed' and total_seen > 0:
+                            final_stats = stats
+                            break
+                        else:
+                            print(f"{YELLOW}[*] Analysis in progress... "
+                                  f"Retrying in 5s (Attempt {attempt}/{MAX_ATTEMPTS}){RESET}")
+                    else:
+                        print(f"{RED}[!] VirusTotal: Poll error HTTP {poll_resp.status_code}{RESET}")
+                        break
+                except requests.exceptions.ConnectionError:
+                    print(f"{RED}[!] VirusTotal: Network error during polling.{RESET}")
+                    break
+
+            if final_stats:
+                _display_vt_stats(final_stats, label="URL Report")
             else:
-                print(f"{RED}[!] VirusTotal: Could not retrieve analysis.{RESET}")
+                print(f"{YELLOW}[~] VirusTotal: Analysis timed out or returned empty results.{RESET}")
         elif vt_resp.status_code == 401:
             print(f"{RED}[!] VirusTotal: Unauthorized.{RESET}")
         else:
@@ -353,13 +380,13 @@ def scan_file():
             analysis_id = upload_resp.json().get('data', {}).get('id', '')
             print(f"{YELLOW}[*] File uploaded. Waiting for VirusTotal engines...{RESET}")
 
-            # ── Polling loop: check every 15s until completed ──────────────────
+            # ── Polling loop: check every 5s until completed ───────────────────
             MAX_ATTEMPTS = 10
             attempt      = 0
             final_attrs  = None
 
             while attempt < MAX_ATTEMPTS:
-                time.sleep(15)
+                time.sleep(5)
                 attempt += 1
                 try:
                     poll_resp = requests.get(
@@ -374,8 +401,8 @@ def scan_file():
                             final_attrs = poll_attrs
                             break
                         else:
-                            print(f"{YELLOW}[*] VirusTotal is still scanning... "
-                                  f"(Attempt {attempt}/{MAX_ATTEMPTS}, retrying in 15s){RESET}")
+                            print(f"{YELLOW}[*] Analysis in progress... "
+                                  f"Retrying in 5s (Attempt {attempt}/{MAX_ATTEMPTS}){RESET}")
                     else:
                         print(f"{RED}[!] Poll error: HTTP {poll_resp.status_code}{RESET}")
                         break
