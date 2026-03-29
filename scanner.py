@@ -147,7 +147,7 @@ def _display_vt_stats(stats, label="Analysis"):
         print(f"\n{RED}[!] Verdict: Threat detected by {malicious} engine(s). Avoid this target.{RESET}")
 
 # ─── Helper: Detailed per-engine file report (File Scan only) ────────────────
-def _display_vt_file_report(attrs, analysis_id):
+def _display_vt_file_report(attrs, analysis_id, scan_type='file'):
     stats      = attrs.get('stats', {})
     results    = attrs.get('results', {})
     malicious  = stats.get('malicious', 0)
@@ -157,7 +157,7 @@ def _display_vt_file_report(attrs, analysis_id):
     total      = malicious + suspicious + harmless + undetected
     detections = malicious + suspicious
 
-    scan_link  = f"https://www.virustotal.com/gui/file-analysis/{analysis_id}"
+    scan_link  = f"https://www.virustotal.com/gui/{scan_type}-analysis/{analysis_id}"
     SEP        = f"{CYAN}  {'─' * 44}{RESET}"
 
     # ── Summary header ─────────────────────────────────────────────────────────
@@ -266,7 +266,7 @@ def scan_url():
             # ── Smart polling: 5s interval, stops when completed AND non-zero ──
             MAX_ATTEMPTS = 10
             attempt      = 0
-            final_stats  = None
+            final_attrs  = None
 
             while attempt < MAX_ATTEMPTS:
                 time.sleep(5)
@@ -284,7 +284,7 @@ def scan_url():
                         total_seen = sum(stats.values())
 
                         if status == 'completed' and total_seen > 0:
-                            final_stats = stats
+                            final_attrs = poll_attrs
                             break
                         else:
                             print(f"{YELLOW}[*] Analysis in progress... "
@@ -296,8 +296,8 @@ def scan_url():
                     print(f"{RED}[!] VirusTotal: Network error during polling.{RESET}")
                     break
 
-            if final_stats:
-                _display_vt_stats(final_stats, label="URL Report")
+            if final_attrs:
+                _display_vt_file_report(final_attrs, analysis_id, scan_type='url')
             else:
                 print(f"{YELLOW}[~] VirusTotal: Analysis timed out or returned empty results.{RESET}")
         elif vt_resp.status_code == 401:
