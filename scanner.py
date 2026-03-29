@@ -148,48 +148,70 @@ def _display_vt_stats(stats, label="Analysis"):
 
 # ─── Helper: Detailed per-engine file report (File Scan only) ────────────────
 def _display_vt_file_report(attrs, analysis_id):
-    stats     = attrs.get('stats', {})
-    results   = attrs.get('results', {})
+    stats      = attrs.get('stats', {})
+    results    = attrs.get('results', {})
     malicious  = stats.get('malicious', 0)
     suspicious = stats.get('suspicious', 0)
     harmless   = stats.get('harmless', 0)
     undetected = stats.get('undetected', 0)
     total      = malicious + suspicious + harmless + undetected
+    detections = malicious + suspicious
 
-    scan_link = f"https://www.virustotal.com/gui/file-analysis/{analysis_id}"
+    scan_link  = f"https://www.virustotal.com/gui/file-analysis/{analysis_id}"
+    SEP        = f"{CYAN}  {'─' * 44}{RESET}"
 
     # ── Summary header ─────────────────────────────────────────────────────────
-    print(f"\n{CYAN}  ══════════════════════════════════════{RESET}")
-    if malicious == 0 and suspicious == 0:
-        print(f"  {GREEN}[v] Total Detections : 0 / {total}{RESET}")
-    else:
-        print(f"  {RED}[!] Total Detections : {malicious + suspicious} / {total}{RESET}")
+    print(f"\n{SEP}")
+    det_color = RED if detections > 0 else GREEN
+    det_label = f"[!]" if detections > 0 else "[v]"
+    print(f"  {det_color}{det_label} Total Detections : {detections} / {total}{RESET}")
     print(f"  {GREEN}[+] Scan Link        : {scan_link}{RESET}")
-    print(f"{CYAN}  ══════════════════════════════════════{RESET}")
+    print(SEP)
 
-    # ── Flagged engines first ──────────────────────────────────────────────────
-    flagged = {
-        eng: data for eng, data in results.items()
-        if data.get('category') in ('malicious', 'suspicious')
-    }
-    if flagged:
-        print(f"\n{RED}  ── Flagged Engines ──{RESET}")
-        for engine, data in sorted(flagged.items()):
-            category = data.get('category', '').capitalize()
-            result   = data.get('result') or category
-            color    = RED if data.get('category') == 'malicious' else YELLOW
-            print(f"  {color}[x] {engine:<25} : {result}{RESET}")
-    else:
-        print(f"\n{GREEN}  [v] No engines flagged this file.{RESET}")
+    # ── Bucket engines by category ─────────────────────────────────────────────
+    flagged_mal  = {}   # malicious or phishing
+    flagged_sus  = {}   # suspicious
+    clean        = {}   # harmless / undetected / type-unsupported
+
+    for engine, data in results.items():
+        cat = data.get('category', '')
+        if cat in ('malicious', 'phishing'):
+            flagged_mal[engine] = data
+        elif cat == 'suspicious':
+            flagged_sus[engine] = data
+        else:
+            clean[engine] = data
+
+    # ── Print flagged: malicious / phishing ────────────────────────────────────
+    if flagged_mal:
+        print(f"\n{RED}  ── Malicious / Phishing ──{RESET}")
+        for engine in sorted(flagged_mal):
+            result = flagged_mal[engine].get('result') or 'Malicious'
+            print(f"  {RED}[!] {engine:<26} -----> {result}{RESET}")
+
+    # ── Print flagged: suspicious ──────────────────────────────────────────────
+    if flagged_sus:
+        print(f"\n{YELLOW}  ── Suspicious ──{RESET}")
+        for engine in sorted(flagged_sus):
+            result = flagged_sus[engine].get('result') or 'Suspicious'
+            print(f"  {YELLOW}[~] {engine:<26} -----> {result}{RESET}")
+
+    # ── Print clean engines ────────────────────────────────────────────────────
+    if clean:
+        print(f"\n{GREEN}  ── Clean / Undetected ──{RESET}")
+        for engine in sorted(clean):
+            result = clean[engine].get('result') or clean[engine].get('category', 'Clean').capitalize()
+            print(f"  {WHITE}[-] {engine:<26} -----> {result}{RESET}")
 
     # ── Overall verdict ────────────────────────────────────────────────────────
-    print()
-    if malicious == 0 and suspicious == 0:
-        print(f"{GREEN}[v] Verdict: Clean. No threats detected ({total} engines).{RESET}")
+    print(f"\n{SEP}")
+    if detections == 0:
+        print(f"  {GREEN}[v] Verdict: Clean. No threats detected ({total} engines).{RESET}")
     elif malicious <= 3:
-        print(f"{YELLOW}[~] Verdict: Low-level flags. Proceed with caution.{RESET}")
+        print(f"  {YELLOW}[~] Verdict: Low-level flags. Proceed with caution.{RESET}")
     else:
-        print(f"{RED}[!] Verdict: Threat detected by {malicious} engine(s). Avoid this file.{RESET}")
+        print(f"  {RED}[!] Verdict: Threat detected by {malicious} engine(s). Avoid this file.{RESET}")
+    print(SEP)
 
 # ─── Module 01 : URL Scanner (URLscan.io + VirusTotal) ────────────────────────
 def scan_url():
