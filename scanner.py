@@ -4,6 +4,7 @@ import re
 import sys
 import os
 import time
+import threading
 
 # ─── ANSI Color Codes ─────────────────────────────────────────────────────────
 RED    = '\033[91m'
@@ -147,7 +148,7 @@ def _display_vt_stats(stats, label="Analysis"):
         print(f"\n{RED}[!] Verdict: Threat detected by {malicious} engine(s). Avoid this target.{RESET}")
 
 # ─── Helper: Detailed per-engine file report (File Scan only) ────────────────
-def _display_vt_file_report(attrs, analysis_id, scan_type='file'):
+def _display_vt_file_report(attrs, analysis_id, scan_type='file', start_n=1):
     stats      = attrs.get('stats', {})
     results    = attrs.get('results', {})
     malicious  = stats.get('malicious', 0)
@@ -169,9 +170,9 @@ def _display_vt_file_report(attrs, analysis_id, scan_type='file'):
     print(SEP)
 
     # ── Bucket engines by category ─────────────────────────────────────────────
-    flagged_mal  = {}   # malicious or phishing
-    flagged_sus  = {}   # suspicious
-    clean        = {}   # harmless / undetected / type-unsupported
+    flagged_mal  = {}
+    flagged_sus  = {}
+    clean        = {}
 
     for engine, data in results.items():
         cat = data.get('category', '')
@@ -183,7 +184,7 @@ def _display_vt_file_report(attrs, analysis_id, scan_type='file'):
             clean[engine] = data
 
     # ── Print flagged: malicious / phishing ────────────────────────────────────
-    n = 1
+    n = start_n
     if flagged_mal:
         print(f"\n{RED}  ── Malicious / Phishing ──{RESET}")
         for engine in sorted(flagged_mal):
@@ -231,87 +232,167 @@ def scan_url():
         input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
         return
 
-    # ── URLscan.io ─────────────────────────────────────────────────────────────
-    print(f"\n{YELLOW}[*] Submitting to URLscan.io...{RESET}")
+    # ── Submit both APIs ───────────────────────────────────────────────────────
+    print(f"\n{YELLOW}[*] Submitting to URLscan.io and VirusTotal simultaneously...{RESET}")
+
+    urlscan_uuid      = None
+    urlscan_submitted = False
+    vt_analysis_id    = None
+    vt_submitted      = False
+
+    # URLscan.io submission
     try:
-        url_headers = {'API-Key': get_url_key(), 'Content-Type': 'application/json'}
-        url_resp    = requests.post(
+        url_resp = requests.post(
             'https://urlscan.io/api/v1/scan/',
-            headers=url_headers,
+            headers={'API-Key': get_url_key(), 'Content-Type': 'application/json'},
             json={"url": target_url, "visibility": "unlisted"},
             timeout=15
         )
         if url_resp.status_code == 200:
-            result_link = url_resp.json().get('result', 'N/A')
-            print(f"{GREEN}[+] URLscan Report : {result_link}{RESET}")
+            urlscan_uuid      = url_resp.json().get('uuid')
+            urlscan_submitted = True
+            print(f"{GREEN}[+] URLscan.io : Submitted (UUID: {urlscan_uuid}){RESET}")
         elif url_resp.status_code == 401:
-            print(f"{RED}[!] URLscan: Unauthorized.{RESET}")
+            print(f"{RED}[!] URLscan.io : Unauthorized.{RESET}")
         else:
-            print(f"{RED}[!] URLscan: HTTP {url_resp.status_code}{RESET}")
-    except requests.exceptions.ConnectionError:
-        print(f"{RED}[!] URLscan: Network error.{RESET}")
+            print(f"{RED}[!] URLscan.io : HTTP {url_resp.status_code}{RESET}")
     except Exception as e:
-        print(f"{RED}[!] URLscan Error: {e}{RESET}")
+        print(f"{RED}[!] URLscan.io : Submission error — {e}{RESET}")
 
-    # ── VirusTotal ─────────────────────────────────────────────────────────────
-    print(f"\n{YELLOW}[*] Submitting to VirusTotal...{RESET}")
+    # VirusTotal submission
     try:
         vt_headers = {'x-apikey': get_vt_key()}
-        vt_resp    = requests.post(
+        vt_resp = requests.post(
             'https://www.virustotal.com/api/v3/urls',
             headers=vt_headers,
             data={'url': target_url},
             timeout=15
         )
         if vt_resp.status_code == 200:
-            analysis_id  = vt_resp.json().get('data', {}).get('id', '')
-            print(f"{YELLOW}[*] Analysis queued. Polling for results...{RESET}")
-
-            # ── Smart polling: 5s interval, stops when completed AND non-zero ──
-            MAX_ATTEMPTS = 10
-            attempt      = 0
-            final_attrs  = None
-
-            while attempt < MAX_ATTEMPTS:
-                time.sleep(5)
-                attempt += 1
-                try:
-                    poll_resp = requests.get(
-                        f'https://www.virustotal.com/api/v3/analyses/{analysis_id}',
-                        headers=vt_headers,
-                        timeout=15
-                    )
-                    if poll_resp.status_code == 200:
-                        poll_attrs = poll_resp.json().get('data', {}).get('attributes', {})
-                        status     = poll_attrs.get('status', '')
-                        stats      = poll_attrs.get('stats', {})
-                        total_seen = sum(stats.values())
-
-                        if status == 'completed' and total_seen > 0:
-                            final_attrs = poll_attrs
-                            break
-                        else:
-                            print(f"{YELLOW}[*] Analysis in progress... "
-                                  f"Retrying in 5s (Attempt {attempt}/{MAX_ATTEMPTS}){RESET}")
-                    else:
-                        print(f"{RED}[!] VirusTotal: Poll error HTTP {poll_resp.status_code}{RESET}")
-                        break
-                except requests.exceptions.ConnectionError:
-                    print(f"{RED}[!] VirusTotal: Network error during polling.{RESET}")
-                    break
-
-            if final_attrs:
-                _display_vt_file_report(final_attrs, analysis_id, scan_type='url')
-            else:
-                print(f"{YELLOW}[~] VirusTotal: Analysis timed out or returned empty results.{RESET}")
+            vt_analysis_id = vt_resp.json().get('data', {}).get('id', '')
+            vt_submitted   = True
+            print(f"{GREEN}[+] VirusTotal : Submitted. Polling in background...{RESET}")
         elif vt_resp.status_code == 401:
-            print(f"{RED}[!] VirusTotal: Unauthorized.{RESET}")
+            print(f"{RED}[!] VirusTotal : Unauthorized.{RESET}")
         else:
-            print(f"{RED}[!] VirusTotal: HTTP {vt_resp.status_code}{RESET}")
-    except requests.exceptions.ConnectionError:
-        print(f"{RED}[!] VirusTotal: Network error.{RESET}")
+            print(f"{RED}[!] VirusTotal : HTTP {vt_resp.status_code}{RESET}")
     except Exception as e:
-        print(f"{RED}[!] VirusTotal Error: {e}{RESET}")
+        print(f"{RED}[!] VirusTotal : Submission error — {e}{RESET}")
+
+    # ── VT polling in background thread ───────────────────────────────────────
+    vt_result = {'attrs': None, 'done': False}
+
+    def _poll_vt():
+        if not vt_submitted:
+            vt_result['done'] = True
+            return
+        MAX_VT = 20
+        for _ in range(MAX_VT):
+            time.sleep(5)
+            try:
+                r = requests.get(
+                    f'https://www.virustotal.com/api/v3/analyses/{vt_analysis_id}',
+                    headers={'x-apikey': get_vt_key()},
+                    timeout=15
+                )
+                if r.status_code == 200:
+                    a      = r.json().get('data', {}).get('attributes', {})
+                    status = a.get('status', '')
+                    total  = sum(a.get('stats', {}).values())
+                    if status == 'completed' and total > 0:
+                        vt_result['attrs'] = a
+                        break
+            except Exception:
+                break
+        vt_result['done'] = True
+
+    vt_thread = threading.Thread(target=_poll_vt, daemon=True)
+    vt_thread.start()
+
+    # ── URLscan.io polling in main thread (10s intervals) ─────────────────────
+    urlscan_data = None
+    urlscan_ok   = False
+
+    if urlscan_submitted and urlscan_uuid:
+        MAX_URL     = 12   # up to 2 minutes
+        url_attempt = 0
+        print(f"\n{YELLOW}[*] Waiting for URLscan.io to finish analysis...{RESET}")
+
+        while url_attempt < MAX_URL:
+            time.sleep(10)
+            url_attempt += 1
+            vt_status_msg = (
+                f"{GREEN}VirusTotal report is ready but holding for synchronization.{RESET}"
+                if vt_result['done'] and vt_result['attrs']
+                else f"{YELLOW}VirusTotal is still scanning.{RESET}"
+            )
+            try:
+                result_resp = requests.get(
+                    f'https://urlscan.io/api/v1/result/{urlscan_uuid}/',
+                    timeout=15
+                )
+                if result_resp.status_code == 200:
+                    urlscan_data = result_resp.json()
+                    urlscan_ok   = True
+                    print(f"{GREEN}[+] URLscan.io : Analysis complete.{RESET}")
+                    break
+                elif result_resp.status_code == 404:
+                    print(f"{YELLOW}[*] URLscan is still analyzing... "
+                          f"{vt_status_msg} "
+                          f"(Attempt {url_attempt}/{MAX_URL}){RESET}")
+                else:
+                    print(f"{RED}[!] URLscan.io poll: HTTP {result_resp.status_code}{RESET}")
+                    break
+            except Exception as e:
+                print(f"{RED}[!] URLscan.io poll error: {e}{RESET}")
+                break
+
+    # Wait for VT thread to finish before displaying anything
+    vt_thread.join(timeout=120)
+
+    # ── Display: URLscan first, then VT (shared serial numbering) ─────────────
+    SEP = f"{CYAN}  {'─' * 44}{RESET}"
+    n   = 1
+
+    if urlscan_ok and urlscan_data:
+        page     = urlscan_data.get('page', {})
+        verdicts = urlscan_data.get('verdicts', {}).get('overall', {})
+        asn_data = urlscan_data.get('meta', {}).get('processors', {}).get('asn', {}).get('data', [])
+        isp      = asn_data[0].get('name', 'N/A') if asn_data else 'N/A'
+
+        ip       = page.get('ip',      'N/A')
+        country  = page.get('country', 'N/A')
+        server   = page.get('server',  'N/A')
+        is_mal   = verdicts.get('malicious', False)
+        score    = verdicts.get('score', 0)
+
+        v_color  = RED if is_mal else GREEN
+        v_label  = 'Malicious' if is_mal else 'Clean'
+
+        print(f"\n{SEP}")
+        print(f"  {CYAN}── URLscan.io Report ──{RESET}")
+        print(SEP)
+        print(f"  {WHITE}{n}. IP Address  : {ip}{RESET}");        n += 1
+        print(f"  {WHITE}{n}. Country     : {country}{RESET}");   n += 1
+        print(f"  {WHITE}{n}. ISP / ASN   : {isp}{RESET}");       n += 1
+        print(f"  {WHITE}{n}. Server      : {server}{RESET}");     n += 1
+        print(f"  {v_color}{n}. Verdict     : {v_label} (Score: {score}){RESET}"); n += 1
+        print(f"  {GREEN}{n}. Full Report : https://urlscan.io/result/{urlscan_uuid}/{RESET}"); n += 1
+    else:
+        print(f"\n{RED}[!] URLscan report failed to load.{RESET}")
+
+    # VT engine table — numbering continues from n
+    if vt_result['attrs']:
+        _display_vt_file_report(
+            vt_result['attrs'],
+            vt_analysis_id,
+            scan_type='url',
+            start_n=n
+        )
+    elif vt_submitted:
+        print(f"{YELLOW}[~] VirusTotal: Analysis timed out or returned empty results.{RESET}")
+    else:
+        print(f"{YELLOW}[~] VirusTotal: Was not submitted.{RESET}")
 
     input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
 
