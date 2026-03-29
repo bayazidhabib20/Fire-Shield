@@ -218,6 +218,179 @@ def _display_vt_file_report(attrs, analysis_id, scan_type='file', start_n=1):
         print(f"  {RED}[!] Verdict: Threat detected by {malicious} engine(s). Avoid this file.{RESET}")
     print(SEP)
 
+# ─── Helper: Full URLscan.io report display ───────────────────────────────────
+def _display_urlscan_full_report(data, uuid, start_n=1):
+    """Prints all URLscan.io fields in sequential numbered list. Returns final n."""
+    SEP  = f"{CYAN}  {'─' * 44}{RESET}"
+    n    = start_n
+
+    page     = data.get('page', {})
+    stats    = data.get('stats', {})
+    verdicts = data.get('verdicts', {}).get('overall', {})
+    lists    = data.get('lists', {})
+    meta     = data.get('meta', {})
+    asn_list = meta.get('processors', {}).get('asn', {}).get('data', [])
+    asn      = asn_list[0] if asn_list else {}
+
+    # ── Page Info ─────────────────────────────────────────────────────────────
+    print(f"\n{SEP}")
+    print(f"  {CYAN}── Page Information ──{RESET}")
+    print(SEP)
+    fields_page = [
+        ("Page Title",    page.get('title',    'N/A')),
+        ("Effective URL", page.get('url',       'N/A')),
+        ("IP Address",    page.get('ip',        'N/A')),
+        ("Country",       page.get('country',   'N/A')),
+        ("City",          page.get('city',      'N/A')),
+        ("Server",        page.get('server',    'N/A')),
+        ("MIME Type",     page.get('mimeType',  'N/A')),
+        ("Status Code",   str(page.get('statusCode', 'N/A'))),
+    ]
+    for label, value in fields_page:
+        print(f"  {WHITE}{n}. {label:<18} : {value}{RESET}")
+        n += 1
+
+    # ── ASN / ISP ─────────────────────────────────────────────────────────────
+    print(f"\n{SEP}")
+    print(f"  {CYAN}── Network / ASN ──{RESET}")
+    print(SEP)
+    fields_asn = [
+        ("ASN",          asn.get('asn',         'N/A')),
+        ("ISP / Org",    asn.get('name',         'N/A')),
+        ("ASN Country",  asn.get('country',      'N/A')),
+        ("Route",        asn.get('route',        'N/A')),
+        ("Description",  asn.get('description',  'N/A')),
+    ]
+    for label, value in fields_asn:
+        print(f"  {WHITE}{n}. {label:<18} : {value}{RESET}")
+        n += 1
+
+    # ── SSL / TLS ─────────────────────────────────────────────────────────────
+    print(f"\n{SEP}")
+    print(f"  {CYAN}── SSL / TLS Certificate ──{RESET}")
+    print(SEP)
+    fields_ssl = [
+        ("TLS Issuer",     page.get('tlsIssuer',    'N/A')),
+        ("Valid From",     page.get('tlsValidFrom',  'N/A')),
+        ("Valid For Days", str(page.get('tlsValidDays', 'N/A'))),
+        ("TLS Age Days",   str(page.get('tlsAgeDays',   'N/A'))),
+    ]
+    for label, value in fields_ssl:
+        print(f"  {WHITE}{n}. {label:<18} : {value}{RESET}")
+        n += 1
+
+    # ── Scan Statistics ───────────────────────────────────────────────────────
+    print(f"\n{SEP}")
+    print(f"  {CYAN}── Scan Statistics ──{RESET}")
+    print(SEP)
+    fields_stats = [
+        ("Total Requests",  str(stats.get('requests',     'N/A'))),
+        ("Unique Domains",  str(stats.get('uniqDomains',  'N/A'))),
+        ("Unique IPs",      str(stats.get('uniqIPs',      'N/A'))),
+        ("Data (bytes)",    str(stats.get('dataLength',   'N/A'))),
+        ("Malicious Reqs",  str(stats.get('malicious',    0))),
+    ]
+    for label, value in fields_stats:
+        print(f"  {WHITE}{n}. {label:<18} : {value}{RESET}")
+        n += 1
+
+    # ── Domains Contacted ─────────────────────────────────────────────────────
+    domains = lists.get('domains', [])
+    if domains:
+        print(f"\n{SEP}")
+        print(f"  {CYAN}── Domains Contacted ({len(domains)}) ──{RESET}")
+        print(SEP)
+        for d in domains[:15]:   # cap at 15 for Termux readability
+            print(f"  {WHITE}{n}. {d}{RESET}")
+            n += 1
+        if len(domains) > 15:
+            print(f"  {CYAN}    ... and {len(domains) - 15} more (see full report){RESET}")
+
+    # ── Verdict ───────────────────────────────────────────────────────────────
+    is_mal  = verdicts.get('malicious', False)
+    score   = verdicts.get('score', 0)
+    tags    = ', '.join(verdicts.get('tags', [])) or 'None'
+    v_color = RED if is_mal else GREEN
+    v_label = 'Malicious' if is_mal else 'Clean'
+
+    print(f"\n{SEP}")
+    print(f"  {CYAN}── Verdict ──{RESET}")
+    print(SEP)
+    print(f"  {v_color}{n}. Verdict   : {v_label} (Score: {score}){RESET}"); n += 1
+    print(f"  {WHITE}{n}. Tags      : {tags}{RESET}");                        n += 1
+    print(f"  {GREEN}{n}. Full Link : https://urlscan.io/result/{uuid}/{RESET}"); n += 1
+
+    print(f"\n{SEP}")
+    return n  # return final counter for VT continuation
+
+# ─── Interactive Report Sub-Menu (URL Scan only) ──────────────────────────────
+def _show_report_menu(urlscan_data, urlscan_uuid, urlscan_ok,
+                      vt_result, vt_analysis_id, vt_submitted):
+    SEP = f"{CYAN}  {'─' * 44}{RESET}"
+
+    while True:
+        os.system('clear')
+        print(BANNER)
+        print(f"{GREEN}[::] SCAN COMPLETE — SELECT REPORT [::]  {RESET}\n")
+        print(f"  {RED}[01]{RESET}  {GREEN}URLscan.io Full Report{RESET}")
+        print(f"  {RED}[02]{RESET}  {GREEN}VirusTotal Full Report{RESET}")
+        print(f"  {RED}[03]{RESET}  {GREEN}Both Reports (Sequential){RESET}")
+        print()
+        print(f"  {RED}[00]{RESET}  {GREEN}Back to Scan Menu{RESET}")
+        print()
+        choice = input(f"{GREEN}[-] Select report : {RESET}").strip()
+
+        if choice == '00':
+            return
+
+        os.system('clear')
+        print(BANNER)
+
+        if choice == '01':
+            # ── URLscan.io only ────────────────────────────────────────────────
+            if urlscan_ok and urlscan_data:
+                _display_urlscan_full_report(urlscan_data, urlscan_uuid, start_n=1)
+            else:
+                print(f"\n{RED}[!] URLscan report failed to load.{RESET}")
+
+        elif choice == '02':
+            # ── VirusTotal only ────────────────────────────────────────────────
+            if vt_result['attrs']:
+                _display_vt_file_report(
+                    vt_result['attrs'], vt_analysis_id,
+                    scan_type='url', start_n=1
+                )
+            elif vt_submitted:
+                print(f"\n{YELLOW}[~] VirusTotal: Analysis timed out.{RESET}")
+            else:
+                print(f"\n{YELLOW}[~] VirusTotal: Was not submitted.{RESET}")
+
+        elif choice == '03':
+            # ── Both sequential ────────────────────────────────────────────────
+            n = 1
+            if urlscan_ok and urlscan_data:
+                n = _display_urlscan_full_report(urlscan_data, urlscan_uuid, start_n=n)
+            else:
+                print(f"\n{RED}[!] URLscan report failed to load.{RESET}")
+
+            if vt_result['attrs']:
+                print(f"\n{SEP}")
+                print(f"  {CYAN}── VirusTotal Report (continuing #{n}) ──{RESET}")
+                print(SEP)
+                _display_vt_file_report(
+                    vt_result['attrs'], vt_analysis_id,
+                    scan_type='url', start_n=n
+                )
+            elif vt_submitted:
+                print(f"\n{YELLOW}[~] VirusTotal: Analysis timed out.{RESET}")
+            else:
+                print(f"\n{YELLOW}[~] VirusTotal: Was not submitted.{RESET}")
+
+        else:
+            print(f"\n{YELLOW}[!] Invalid choice. Select 01, 02, 03, or 00.{RESET}")
+
+        input(f"\n{YELLOW}[*] Press Enter to return to Report Menu...{RESET}")
+
 # ─── Module 01 : URL Scanner (URLscan.io + VirusTotal) ────────────────────────
 def scan_url():
     os.system('clear')
@@ -350,51 +523,11 @@ def scan_url():
     # Wait for VT thread to finish before displaying anything
     vt_thread.join(timeout=120)
 
-    # ── Display: URLscan first, then VT (shared serial numbering) ─────────────
-    SEP = f"{CYAN}  {'─' * 44}{RESET}"
-    n   = 1
-
-    if urlscan_ok and urlscan_data:
-        page     = urlscan_data.get('page', {})
-        verdicts = urlscan_data.get('verdicts', {}).get('overall', {})
-        asn_data = urlscan_data.get('meta', {}).get('processors', {}).get('asn', {}).get('data', [])
-        isp      = asn_data[0].get('name', 'N/A') if asn_data else 'N/A'
-
-        ip       = page.get('ip',      'N/A')
-        country  = page.get('country', 'N/A')
-        server   = page.get('server',  'N/A')
-        is_mal   = verdicts.get('malicious', False)
-        score    = verdicts.get('score', 0)
-
-        v_color  = RED if is_mal else GREEN
-        v_label  = 'Malicious' if is_mal else 'Clean'
-
-        print(f"\n{SEP}")
-        print(f"  {CYAN}── URLscan.io Report ──{RESET}")
-        print(SEP)
-        print(f"  {WHITE}{n}. IP Address  : {ip}{RESET}");        n += 1
-        print(f"  {WHITE}{n}. Country     : {country}{RESET}");   n += 1
-        print(f"  {WHITE}{n}. ISP / ASN   : {isp}{RESET}");       n += 1
-        print(f"  {WHITE}{n}. Server      : {server}{RESET}");     n += 1
-        print(f"  {v_color}{n}. Verdict     : {v_label} (Score: {score}){RESET}"); n += 1
-        print(f"  {GREEN}{n}. Full Report : https://urlscan.io/result/{urlscan_uuid}/{RESET}"); n += 1
-    else:
-        print(f"\n{RED}[!] URLscan report failed to load.{RESET}")
-
-    # VT engine table — numbering continues from n
-    if vt_result['attrs']:
-        _display_vt_file_report(
-            vt_result['attrs'],
-            vt_analysis_id,
-            scan_type='url',
-            start_n=n
-        )
-    elif vt_submitted:
-        print(f"{YELLOW}[~] VirusTotal: Analysis timed out or returned empty results.{RESET}")
-    else:
-        print(f"{YELLOW}[~] VirusTotal: Was not submitted.{RESET}")
-
-    input(f"\n{YELLOW}[*] Press Enter to return to menu...{RESET}")
+    # ── Hand off to interactive report sub-menu ────────────────────────────────
+    _show_report_menu(
+        urlscan_data, urlscan_uuid, urlscan_ok,
+        vt_result, vt_analysis_id, vt_submitted
+    )
 
 # ─── Module 02 : File Scanner (VirusTotal) ────────────────────────────────────
 def scan_file():
