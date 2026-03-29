@@ -183,25 +183,29 @@ def _display_vt_file_report(attrs, analysis_id, scan_type='file'):
             clean[engine] = data
 
     # ── Print flagged: malicious / phishing ────────────────────────────────────
+    n = 1
     if flagged_mal:
         print(f"\n{RED}  ── Malicious / Phishing ──{RESET}")
         for engine in sorted(flagged_mal):
             result = flagged_mal[engine].get('result') or 'Malicious'
-            print(f"  {RED}[!] {engine:<26} -----> {result}{RESET}")
+            print(f"  {RED}[!] {n}. {engine:<24} -----> {result}{RESET}")
+            n += 1
 
     # ── Print flagged: suspicious ──────────────────────────────────────────────
     if flagged_sus:
         print(f"\n{YELLOW}  ── Suspicious ──{RESET}")
         for engine in sorted(flagged_sus):
             result = flagged_sus[engine].get('result') or 'Suspicious'
-            print(f"  {YELLOW}[~] {engine:<26} -----> {result}{RESET}")
+            print(f"  {YELLOW}[~] {n}. {engine:<24} -----> {result}{RESET}")
+            n += 1
 
     # ── Print clean engines ────────────────────────────────────────────────────
     if clean:
         print(f"\n{GREEN}  ── Clean / Undetected ──{RESET}")
         for engine in sorted(clean):
             result = clean[engine].get('result') or clean[engine].get('category', 'Clean').capitalize()
-            print(f"  {WHITE}[-] {engine:<26} -----> {result}{RESET}")
+            print(f"  {WHITE}[-] {n}. {engine:<24} -----> {result}{RESET}")
+            n += 1
 
     # ── Overall verdict ────────────────────────────────────────────────────────
     print(f"\n{SEP}")
