@@ -323,16 +323,88 @@ def _display_urlscan_full_report(data, uuid, start_n=1):
     print(f"\n{SEP}")
     return n  # return final counter for VT continuation
 
+# ─── Helper: URLscan.io Diagnostic Error Report ───────────────────────────────
+def _display_urlscan_error_report(error):
+    SEP   = f"{CYAN}  {'─' * 44}{RESET}"
+    code  = error.get('code', 'Unknown')
+    msg   = error.get('message', 'No additional details.')
+
+    print(f"\n{SEP}")
+    print(f"  {RED}── URLscan.io Diagnostic Report ──{RESET}")
+    print(SEP)
+    print(f"\n  {RED}Technical Error : HTTP {code} (Bad Request){RESET}")
+    print(f"  {YELLOW}API Message     : {msg}{RESET}")
+
+    print(f"\n{SEP}")
+    print(f"  {CYAN}── Possible Reasons ──{RESET}")
+    print(SEP)
+
+    reasons = [
+        (
+            "1. Bot Detection & Security Headers",
+            f"  {WHITE}High-security domains like Facebook deploy strict Content-Security-Policy\n"
+            f"  and X-Frame-Options headers to block automated headless browsers. When\n"
+            f"  URLscan.io's Chromium instance attempts to load the page, the server\n"
+            f"  detects the missing human interaction signals (mouse events, cookies,\n"
+            f"  JS challenges) and responds with a 400 or challenge block before the\n"
+            f"  page even renders, causing the scan submission to be rejected.{RESET}"
+        ),
+        (
+            "2. Mandatory User Authentication (Login Wall)",
+            f"  {WHITE}Many pages on Facebook, Instagram, and similar platforms require an\n"
+            f"  active authenticated session before serving any meaningful content.\n"
+            f"  URLscan.io operates without credentials, so the target URL redirects\n"
+            f"  to a login page or returns an error payload. The API then flags the\n"
+            f"  submission as invalid because the effective destination URL is not the\n"
+            f"  same as the submitted one, triggering a 400 Bad Request response.{RESET}"
+        ),
+        (
+            "3. IP Reputation & Rate Limiting",
+            f"  {WHITE}Scanning engines like URLscan.io operate from known data-center IP\n"
+            f"  ranges (AWS, Google Cloud, Cloudflare). Facebook and CDN-backed targets\n"
+            f"  maintain real-time blocklists of these IP ranges and apply aggressive\n"
+            f"  rate limiting. A request originating from a flagged ASN may receive a\n"
+            f"  400 response or silent drop before reaching the application layer,\n"
+            f"  making it impossible for the scan engine to retrieve page content.{RESET}"
+        ),
+        (
+            "4. Dynamic JavaScript Execution Failure",
+            f"  {WHITE}Modern single-page applications like Facebook rely on complex JS\n"
+            f"  bundles, dynamic redirects, and AJAX-based authentication flows that\n"
+            f"  free-tier scanning engines cannot fully execute. If the initial JS\n"
+            f"  challenge or redirect chain does not complete within the engine's\n"
+            f"  timeout window, the scan is aborted and a 400 is returned, as the\n"
+            f"  engine cannot confirm the final resolved URL or page state.{RESET}"
+        ),
+    ]
+
+    for title, body in reasons:
+        print(f"\n  {YELLOW}[~] {title}{RESET}")
+        print(body)
+
+    print(f"\n{SEP}")
+    print(f"  {GREEN}[*] Recommendation: Use VirusTotal report for this target.{RESET}")
+    print(SEP)
+
 # ─── Interactive Report Sub-Menu (URL Scan only) ──────────────────────────────
 def _show_report_menu(urlscan_data, urlscan_uuid, urlscan_ok,
-                      vt_result, vt_analysis_id, vt_submitted):
+                      vt_result, vt_analysis_id, vt_submitted,
+                      urlscan_error=None):
     SEP = f"{CYAN}  {'─' * 44}{RESET}"
 
     while True:
         os.system('clear')
         print(BANNER)
         print(f"{GREEN}[::] SCAN COMPLETE — SELECT REPORT [::]  {RESET}\n")
-        print(f"  {RED}[01]{RESET}  {GREEN}URLscan.io Full Report{RESET}")
+
+        # ── [01] label changes if URLscan errored ──────────────────────────────
+        if urlscan_error:
+            label_01 = (f"{GREEN}URLscan.io Report  "
+                        f"{RED}(See error details){RESET}")
+        else:
+            label_01 = f"{GREEN}URLscan.io Full Report{RESET}"
+
+        print(f"  {RED}[01]{RESET}  {label_01}")
         print(f"  {RED}[02]{RESET}  {GREEN}VirusTotal Full Report{RESET}")
         print(f"  {RED}[03]{RESET}  {GREEN}Both Reports (Sequential){RESET}")
         print()
@@ -347,8 +419,10 @@ def _show_report_menu(urlscan_data, urlscan_uuid, urlscan_ok,
         print(BANNER)
 
         if choice == '01':
-            # ── URLscan.io only ────────────────────────────────────────────────
-            if urlscan_ok and urlscan_data:
+            # ── URLscan.io — success report or diagnostic ──────────────────────
+            if urlscan_error:
+                _display_urlscan_error_report(urlscan_error)
+            elif urlscan_ok and urlscan_data:
                 _display_urlscan_full_report(urlscan_data, urlscan_uuid, start_n=1)
             else:
                 print(f"\n{RED}[!] URLscan report failed to load.{RESET}")
@@ -410,6 +484,7 @@ def scan_url():
 
     urlscan_uuid      = None
     urlscan_submitted = False
+    urlscan_error     = None   # captures HTTP error for diagnostic report
     vt_analysis_id    = None
     vt_submitted      = False
 
@@ -426,10 +501,19 @@ def scan_url():
             urlscan_submitted = True
             print(f"{GREEN}[+] URLscan.io : Submitted (UUID: {urlscan_uuid}){RESET}")
         elif url_resp.status_code == 401:
+            urlscan_error = {'code': 401, 'message': 'Unauthorized — API key rejected.'}
             print(f"{RED}[!] URLscan.io : Unauthorized.{RESET}")
         else:
-            print(f"{RED}[!] URLscan.io : HTTP {url_resp.status_code}{RESET}")
+            # Capture code and API message for diagnostic display
+            try:
+                api_msg = url_resp.json().get('message', url_resp.text[:120])
+            except Exception:
+                api_msg = url_resp.text[:120]
+            urlscan_error = {'code': url_resp.status_code, 'message': api_msg}
+            print(f"{YELLOW}[!] URLscan.io: HTTP {url_resp.status_code} "
+                  f"(Error details in report section){RESET}")
     except Exception as e:
+        urlscan_error = {'code': 'N/A', 'message': str(e)}
         print(f"{RED}[!] URLscan.io : Submission error — {e}{RESET}")
 
     # VirusTotal submission
@@ -526,7 +610,8 @@ def scan_url():
     # ── Hand off to interactive report sub-menu ────────────────────────────────
     _show_report_menu(
         urlscan_data, urlscan_uuid, urlscan_ok,
-        vt_result, vt_analysis_id, vt_submitted
+        vt_result, vt_analysis_id, vt_submitted,
+        urlscan_error=urlscan_error
     )
 
 # ─── Module 02 : File Scanner (VirusTotal) ────────────────────────────────────
