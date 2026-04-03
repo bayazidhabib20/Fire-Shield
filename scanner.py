@@ -543,9 +543,8 @@ def scan_url():
         if not vt_submitted:
             vt_result['done'] = True
             return
-        MAX_VT = 20
-        for _ in range(MAX_VT):
-            time.sleep(5)
+        while True:
+            time.sleep(2)
             try:
                 r = requests.get(
                     f'https://www.virustotal.com/api/v3/analyses/{vt_analysis_id}',
@@ -571,13 +570,10 @@ def scan_url():
     urlscan_ok   = False
 
     if urlscan_submitted and urlscan_uuid:
-        MAX_URL     = 12   # up to 2 minutes
-        url_attempt = 0
         print(f"\n{YELLOW}[*] Waiting for URLscan.io to finish analysis...{RESET}")
 
-        while url_attempt < MAX_URL:
-            time.sleep(10)
-            url_attempt += 1
+        while True:
+            time.sleep(2)
             vt_status_msg = (
                 f"{GREEN}VirusTotal report is ready but holding for synchronization.{RESET}"
                 if vt_result['done'] and vt_result['attrs']
@@ -596,7 +592,7 @@ def scan_url():
                 elif result_resp.status_code == 404:
                     print(f"{YELLOW}[*] URLscan is still analyzing... "
                           f"{vt_status_msg} "
-                          f"(Attempt {url_attempt}/{MAX_URL}){RESET}")
+                          f"(Waiting for results){RESET}")
                 else:
                     print(f"{RED}[!] URLscan.io poll: HTTP {result_resp.status_code}{RESET}")
                     break
@@ -683,14 +679,9 @@ def scan_file():
             analysis_id = upload_resp.json().get('data', {}).get('id', '')
             print(f"{YELLOW}[*] File uploaded. Waiting for VirusTotal engines...{RESET}")
 
-            # ── Polling loop: check every 5s until completed ───────────────────
-            MAX_ATTEMPTS = 10
-            attempt      = 0
-            final_attrs  = None
-
-            while attempt < MAX_ATTEMPTS:
-                time.sleep(5)
-                attempt += 1
+            final_attrs = None
+            while True:
+                time.sleep(2)
                 try:
                     poll_resp = requests.get(
                         f'https://www.virustotal.com/api/v3/analyses/{analysis_id}',
@@ -705,7 +696,7 @@ def scan_file():
                             break
                         else:
                             print(f"{YELLOW}[*] Analysis in progress... "
-                                  f"Retrying in 5s (Attempt {attempt}/{MAX_ATTEMPTS}){RESET}")
+                                  f"Retrying in 2s (Waiting for results){RESET}")
                     else:
                         print(f"{RED}[!] Poll error: HTTP {poll_resp.status_code}{RESET}")
                         break
@@ -716,8 +707,7 @@ def scan_file():
             if final_attrs:
                 _display_vt_file_report(final_attrs, analysis_id)
             else:
-                print(f"{YELLOW}[~] Analysis timed out or incomplete.{RESET}")
-                print(f"{CYAN}    Check manually: https://www.virustotal.com/gui/file-analysis/{analysis_id}{RESET}")
+                print(f"{RED}[!] Analysis could not be retrieved. Check network and try again.{RESET}")
         elif upload_resp.status_code == 401:
             print(f"{RED}[!] Unauthorized.{RESET}")
         else:
