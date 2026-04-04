@@ -607,9 +607,9 @@ def scan_url():
         while True:
             time.sleep(2)
             vt_status_msg = (
-                f"{GREEN}VirusTotal report is ready but holding for synchronization.{RESET}"
+                "VirusTotal report is ready but holding for synchronization."
                 if vt_result['done'] and vt_result['attrs']
-                else f"{YELLOW}VirusTotal is still scanning.{RESET}"
+                else "VirusTotal is still scanning."
             )
             try:
                 result_resp = requests.get(
@@ -622,9 +622,10 @@ def scan_url():
                     print(f"{GREEN}[+] URLscan.io : Analysis complete.{RESET}")
                     break
                 elif result_resp.status_code == 404:
-                    print(f"{YELLOW}[*] URLscan is still analyzing... "
-                          f"{vt_status_msg} "
-                          f"(Waiting for results){RESET}")
+                    smart_print(
+                        f"[*] URLscan is still analyzing... {vt_status_msg} (Waiting for results)",
+                        color=YELLOW
+                    )
                 else:
                     print(f"{RED}[!] URLscan.io poll: HTTP {result_resp.status_code}{RESET}")
                     break
