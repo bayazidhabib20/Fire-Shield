@@ -5,6 +5,8 @@ import sys
 import os
 import time
 import threading
+import shutil
+import textwrap
 
 # ─── ANSI Color Codes ─────────────────────────────────────────────────────────
 RED    = '\033[91m'
@@ -13,6 +15,36 @@ YELLOW = '\033[93m'
 WHITE  = '\033[97m'
 CYAN   = '\033[96m'
 RESET  = '\033[0m'
+
+# Strips ANSI escape sequences for width-safe text measurement
+_ANSI_ESC = re.compile(r'\033\[[0-9;]*m')
+
+# ─── Global Word-Wrap Print ───────────────────────────────────────────────────
+def smart_print(text, color='', indent=0):
+    """
+    Print text wrapped to the current terminal width, breaking at spaces only.
+    - color : an ANSI color constant to apply to every wrapped line (optional)
+    - indent: number of leading spaces on every line
+    ANSI codes in `text` are stripped before wrapping so they never split words.
+    """
+    cols  = max(20, shutil.get_terminal_size((58, 20)).columns)
+    pad   = ' ' * indent
+    reset = RESET if color else ''
+    plain = _ANSI_ESC.sub('', text)   # strip codes → measure correctly
+
+    for para in plain.split('\n'):
+        stripped = para.strip()
+        if not stripped:
+            print()
+            continue
+        lines = textwrap.wrap(
+            stripped,
+            width             = max(1, cols - indent),
+            break_long_words  = False,   # never split a word mid-character
+            break_on_hyphens  = False,   # keep hyphenated words intact
+        )
+        for line in (lines or ['']):
+            print(f"{color}{pad}{line}{reset}")
 
 # ─── Reverse-Base64 Masked API Keys (DO NOT MODIFY) ───────────────────────────
 _VT_MASKED  = "YzU5MGE0NjY1ODRkMTNlNmZiZjllOGIxNzdiMzlhYzlmNTg3ZmE0Yzk1Y2Q3MThjZjYwZjRlMjdlM2ZkN2Q1Nw=="
@@ -333,7 +365,7 @@ def _display_urlscan_error_report(error):
     print(f"  {RED}── URLscan.io Diagnostic Report ──{RESET}")
     print(SEP)
     print(f"\n  {RED}Technical Error : HTTP {code} (Bad Request){RESET}")
-    print(f"  {YELLOW}API Message     : {msg}{RESET}")
+    smart_print(f"API Message : {msg}", color=YELLOW, indent=2)
 
     print(f"\n{SEP}")
     print(f"  {CYAN}── Possible Reasons ──{RESET}")
@@ -342,48 +374,48 @@ def _display_urlscan_error_report(error):
     reasons = [
         (
             "1. Bot Detection & Security Headers",
-            f"  {WHITE}High-security domains like Facebook deploy strict Content-Security-Policy\n"
-            f"  and X-Frame-Options headers to block automated headless browsers. When\n"
-            f"  URLscan.io's Chromium instance attempts to load the page, the server\n"
-            f"  detects the missing human interaction signals (mouse events, cookies,\n"
-            f"  JS challenges) and responds with a 400 or challenge block before the\n"
-            f"  page even renders, causing the scan submission to be rejected.{RESET}"
+            "High-security domains like Facebook deploy strict Content-Security-Policy "
+            "and X-Frame-Options headers to block automated headless browsers. When "
+            "URLscan.io's Chromium instance attempts to load the page, the server "
+            "detects the missing human interaction signals (mouse events, cookies, "
+            "JS challenges) and responds with a 400 or challenge block before the "
+            "page even renders, causing the scan submission to be rejected."
         ),
         (
             "2. Mandatory User Authentication (Login Wall)",
-            f"  {WHITE}Many pages on Facebook, Instagram, and similar platforms require an\n"
-            f"  active authenticated session before serving any meaningful content.\n"
-            f"  URLscan.io operates without credentials, so the target URL redirects\n"
-            f"  to a login page or returns an error payload. The API then flags the\n"
-            f"  submission as invalid because the effective destination URL is not the\n"
-            f"  same as the submitted one, triggering a 400 Bad Request response.{RESET}"
+            "Many pages on Facebook, Instagram, and similar platforms require an "
+            "active authenticated session before serving any meaningful content. "
+            "URLscan.io operates without credentials, so the target URL redirects "
+            "to a login page or returns an error payload. The API then flags the "
+            "submission as invalid because the effective destination URL is not the "
+            "same as the submitted one, triggering a 400 Bad Request response."
         ),
         (
             "3. IP Reputation & Rate Limiting",
-            f"  {WHITE}Scanning engines like URLscan.io operate from known data-center IP\n"
-            f"  ranges (AWS, Google Cloud, Cloudflare). Facebook and CDN-backed targets\n"
-            f"  maintain real-time blocklists of these IP ranges and apply aggressive\n"
-            f"  rate limiting. A request originating from a flagged ASN may receive a\n"
-            f"  400 response or silent drop before reaching the application layer,\n"
-            f"  making it impossible for the scan engine to retrieve page content.{RESET}"
+            "Scanning engines like URLscan.io operate from known data-center IP "
+            "ranges (AWS, Google Cloud, Cloudflare). Facebook and CDN-backed targets "
+            "maintain real-time blocklists of these IP ranges and apply aggressive "
+            "rate limiting. A request originating from a flagged ASN may receive a "
+            "400 response or silent drop before reaching the application layer, "
+            "making it impossible for the scan engine to retrieve page content."
         ),
         (
             "4. Dynamic JavaScript Execution Failure",
-            f"  {WHITE}Modern single-page applications like Facebook rely on complex JS\n"
-            f"  bundles, dynamic redirects, and AJAX-based authentication flows that\n"
-            f"  free-tier scanning engines cannot fully execute. If the initial JS\n"
-            f"  challenge or redirect chain does not complete within the engine's\n"
-            f"  timeout window, the scan is aborted and a 400 is returned, as the\n"
-            f"  engine cannot confirm the final resolved URL or page state.{RESET}"
+            "Modern single-page applications like Facebook rely on complex JS "
+            "bundles, dynamic redirects, and AJAX-based authentication flows that "
+            "free-tier scanning engines cannot fully execute. If the initial JS "
+            "challenge or redirect chain does not complete within the engine's "
+            "timeout window, the scan is aborted and a 400 is returned, as the "
+            "engine cannot confirm the final resolved URL or page state."
         ),
     ]
 
     for title, body in reasons:
         print(f"\n  {YELLOW}[~] {title}{RESET}")
-        print(body)
+        smart_print(body, color=WHITE, indent=2)
 
     print(f"\n{SEP}")
-    print(f"  {GREEN}[*] Recommendation: Use VirusTotal report for this target.{RESET}")
+    smart_print("Recommendation: Use VirusTotal report for this target.", color=GREEN, indent=2)
     print(SEP)
 
 # ─── Interactive Report Sub-Menu (URL Scan only) ──────────────────────────────
@@ -603,7 +635,9 @@ def scan_url():
     # Wait for VT thread to finish before displaying anything
     vt_thread.join(timeout=120)
 
-    # ── Hand off to interactive report sub-menu ────────────────────────────────
+    # ── Clear polling clutter, then hand off to report sub-menu ───────────────
+    os.system('clear')
+    print(BANNER)
     _show_report_menu(
         urlscan_data, urlscan_uuid, urlscan_ok,
         vt_result, vt_analysis_id, vt_submitted,
@@ -634,17 +668,27 @@ def scan_file():
 
         # ── upload ─────────────────────────────────────────────────────────────
         elif cmd == 'upload':
+            filepath_check = os.path.join(os.getcwd(), TEMP_FILE)
+
+            # Cleanup: remove stale temp_file before new pick to avoid wrong scan
+            if os.path.isfile(filepath_check):
+                try:
+                    os.remove(filepath_check)
+                except Exception:
+                    pass
+
             print(f"{YELLOW}[*] Opening file picker... Select your file.{RESET}")
-            ret = os.system('termux-storage-get temp_file')
-            if ret != 0:
-                print(f"{RED}[!] File picker failed or was cancelled.{RESET}")
-                print(f"{CYAN}[*] Ensure termux-api is installed: pkg install termux-api{RESET}")
+            os.system('termux-storage-get temp_file')
+
+            # Race condition fix: give Termux 0.5s to finish writing the file
+            time.sleep(0.5)
+
+            # Verify file existence — this is the only truth
+            if os.path.isfile(filepath_check):
+                print(f"{GREEN}[+] File uploaded successfully and ready to scan.{RESET}")
+                print(f"{CYAN}[*] Type 'scan' to submit it to VirusTotal.{RESET}")
             else:
-                if os.path.isfile(os.path.join(os.getcwd(), TEMP_FILE)):
-                    print(f"{GREEN}[+] File received and saved as 'temp_file'.{RESET}")
-                    print(f"{CYAN}[*] Type 'scan' to submit it to VirusTotal.{RESET}")
-                else:
-                    print(f"{YELLOW}[~] Picker closed but temp_file not found. Did you select a file?{RESET}")
+                print(f"{RED}[-] File not uploaded, please try again.{RESET}")
 
         # ── scan ───────────────────────────────────────────────────────────────
         elif cmd == 'scan':
@@ -705,6 +749,10 @@ def scan_file():
                     break
 
             if final_attrs:
+                os.system('clear')
+                print(BANNER)
+                print(f"{GREEN}[::] FILE SCAN RESULTS [::]  {RESET}\n")
+                print(f"{CYAN}[*] Target : temp_file{RESET}")
                 _display_vt_file_report(final_attrs, analysis_id)
             else:
                 print(f"{RED}[!] Analysis could not be retrieved. Check network and try again.{RESET}")
